@@ -2,7 +2,22 @@
  This plugin extends lazySizes to lazyLoad and/or conditionally load content
  */
 
-(function(window, document){
+(function(window, factory) {
+	var globalInstall = function(){
+		factory(window.lazySizes);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes) {
 	/*jshint eqnull:true */
 	'use strict';
 
@@ -19,8 +34,14 @@
 	var docElem = document.documentElement;
 	var conditionalIncludes = document.getElementsByClassName('lazyconditionalinclude');
 
-	var getComputedStyle = function(){
-		return window.getComputedStyle.apply(window.getComputedStyle, arguments) || {getPropertyValue: function(){}};
+	var getStyles = function (element, pseudo) {
+		var view = element.ownerDocument.defaultView;
+
+		if (!view.opener) {
+			view = window;
+		}
+
+		return view.getComputedStyle(element, pseudo || null) || {getPropertyValue: function(){}, isNull: true};
 	};
 
 	var queue = (function(){
@@ -104,7 +125,7 @@
 		};
 	})();
 
-	config = (window.lazySizes && lazySizes.cfg) || window.lazySizesConfig;
+	config = (lazySizes && lazySizes.cfg) || window.lazySizesConfig;
 
 	if(!config){
 		config = {};
@@ -131,8 +152,9 @@
 
 	function addUrl(url){
 		/*jshint validthis:true */
-		if(url.match(regTypes)){
-			this.urls[RegExp.$1] = includeConfig.map[RegExp.$2] || RegExp.$2;
+		var match;
+		if((match = url.match(regTypes))){
+			this.urls[match[1]] = includeConfig.map[match[2]] || match[2];
 		} else {
 			this.urls.include = includeConfig.map[url] || url;
 		}
@@ -147,10 +169,10 @@
 		map = input.match(regUrlCan);
 
 		if(map){
-			url = RegExp.$1;
+			url = map[1];
 			output = {
-				condition: config.include.conditions[RegExp.$3] || config.customMedia[RegExp.$3] || RegExp.$2 || null,
-				name: RegExp.$3
+				condition: config.include.conditions[map[3]] || config.customMedia[map[3]] || map[2] || null,
+				name: map[3]
 			};
 		} else {
 			url = input;
@@ -178,7 +200,7 @@
 		var includeStr = (elem.getAttribute('data-include') || '');
 		var includeData = elem.lazyInclude;
 		var initialContent;
-		if(!includeData || includeData.str != includeStr){
+		if(!includeData || includeData.str != includeStr || includeConfig.allowReload){
 			initialContent = {saved: false, content: null};
 			includeData = {
 				str: includeStr,
@@ -240,14 +262,14 @@
 			}
 
 			if(baseContentElement){
-				cStyle = (getComputedStyle(baseContentElement, ':after').getPropertyValue('content') || 'none').replace(regCleanPseudos, '');
+				cStyle = (getStyles(baseContentElement, ':after').getPropertyValue('content') || 'none').replace(regCleanPseudos, '');
 
 				basePseudos = {};
 
 				if(cStyle){
 					basePseudos[cStyle] = 1;
 				}
-				cStyle = (getComputedStyle(baseContentElement, ':before').getPropertyValue('content') || 'none').replace(regCleanPseudos, '');
+				cStyle = (getStyles(baseContentElement, ':before').getPropertyValue('content') || 'none').replace(regCleanPseudos, '');
 				if(cStyle){
 					basePseudos[cStyle] = 1;
 				}
@@ -290,23 +312,45 @@
 		request.open.apply(request, detail.openArgs);
 		request.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 		if(detail.xhrModifier){
-			detail.xhrModifier(request, elem, candidate);
+			detail.xhrModifier(request, detail.candidate);
 		}
 		request.send(detail.sendData);
 	}
 
 	function loadRequire(urls, callback){
 		urls = urls.split('|,|');
-		require(urls, callback);
+
+		var last = urls.length - 1;
+
+		if(lazySizes.cfg.requireJs){
+			lazySizes.cfg.requireJs(urls, callback);
+		} else {
+			urls.forEach(function(url, index){
+				loadStyleScript(url, index == last ? callback : null);
+			});
+		}
 	}
 
-	function loadStyle(url){
+	function loadSystemJs(url, callback){
+		if(lazySizes.cfg.systemJs){
+			lazySizes.cfg.systemJs(url, callback);
+		} else {
+			loadStyleScript(url, callback);
+		}
+	}
+
+	function loadStyleScript(url, isScript, cb){
 		if(!uniqueUrls[url]){
-			var elem = document.createElement('link');
+			var elem = document.createElement(isScript === true ? 'script' : 'link');
 			var insertElem = document.getElementsByTagName('script')[0];
 
-			elem.rel = 'stylesheet';
-			elem.href = url;
+			if(isScript){
+				elem.src = url;
+				elem.async = false;
+			} else {
+				elem.rel = 'stylesheet';
+				elem.href = url;
+			}
 			insertElem.parentNode.insertBefore(elem, insertElem);
 			uniqueUrls[url] = true;
 			uniqueUrls[elem.href] = true;
@@ -315,7 +359,7 @@
 
 	function loadStyles(urls){
 		urls = urls.split('|,|');
-		urls.forEach(loadStyle);
+		urls.forEach(loadStyleScript);
 	}
 
 	function transformInclude(module){
@@ -358,7 +402,7 @@
 		}
 
 		include = function(){
-			var event, loadRequireImportCB;
+			var event;
 			var status = xhrObj.status;
 			var content = xhrObj.content || xhrObj.responseText;
 			var reset = !!(content == null && old && old.urls.include);
@@ -392,11 +436,7 @@
 			event = lazySizes.fire(elem, 'lazyincludeloaded', detail);
 
 			if(detail.insert && detail.isSuccess && !event.defaultPrevented && detail.content != null && detail.content != elem.innerHTML){
-				if(window.jQuery){
-					jQuery(elem).html(detail.content);
-				} else {
-					elem.innerHTML = detail.content;
-				}
+				elem.innerHTML = detail.content;
 			}
 
 			queue.d();
@@ -429,17 +469,19 @@
 		}
 
 		if(candidate.urls.amd || candidate.urls.module){
-			loadRequireImportCB = function(){
+			var loadRequireImportCB = function(){
 				modules = Array.prototype.slice.call(arguments);
 				if(xhrObj){
 					include();
 				}
 			};
-			if(candidate.urls.module && window.System && System.import){
-				System.import(candidate.urls.module).then(loadRequireImportCB);
-			} else if(window.require) {
+
+			if(candidate.urls.amd){
 				loadRequire(candidate.urls.amd, loadRequireImportCB);
+			} else {
+				loadSystemJs(candidate.urls.module, loadRequireImportCB);
 			}
+
 		} else {
 			modules = [];
 		}
@@ -461,7 +503,7 @@
 	}
 
 	function beforeUnveil(e){
-		if(e.defaultPrevented || !e.target.getAttribute('data-include')){return;}
+		if(e.detail.instance != lazySizes || e.defaultPrevented || !e.target.getAttribute('data-include')){return;}
 		queue.q(e.target);
 		e.detail.firesLoad = true;
 	}
@@ -471,4 +513,4 @@
 	addEventListener('resize', refreshIncludes, false);
 	addEventListener('lazyrefreshincludes', refreshIncludes, false);
 
-})(window, document);
+}));

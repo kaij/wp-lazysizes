@@ -1,4 +1,19 @@
-(function(){
+(function(window, factory) {
+	var globalInstall = function(initialEvent){
+		factory(window.lazySizes, initialEvent);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes, initialEvent) {
 	'use strict';
 	var style = document.createElement('a').style;
 	var fitSupport = 'objectFit' in style;
@@ -6,6 +21,7 @@
 	var regCssFit = /object-fit["']*\s*:\s*["']*(contain|cover)/;
 	var regCssPosition = /object-position["']*\s*:\s*["']*(.+?)(?=($|,|'|"|;))/;
 	var blankSrc = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+	var regBgUrlEscape = /\(|\)|'/;
 	var positionDefaults = {
 		center: 'center',
 		'50% 50%': 'center',
@@ -28,22 +44,33 @@
 	}
 
 	function initFix(element, config){
+		var switchClassesAdded, addedSrc;
+		var lazysizesCfg = lazySizes.cfg;
 		var styleElement = element.cloneNode(false);
 		var styleElementStyle = styleElement.style;
 
 		var onChange = function(){
 			var src = element.currentSrc || element.src;
 
-			if(src){
-				styleElementStyle.backgroundImage = 'url(' + src + ')';
+			if(src && addedSrc !== src){
+				addedSrc = src;
+				styleElementStyle.backgroundImage = 'url(' + (regBgUrlEscape.test(src) ? JSON.stringify(src) : src ) + ')';
+
+				if(!switchClassesAdded){
+					switchClassesAdded = true;
+					lazySizes.rC(styleElement, lazysizesCfg.loadingClass);
+					lazySizes.aC(styleElement, lazysizesCfg.loadedClass);
+				}
 			}
+		};
+		var rafedOnChange = function(){
+			lazySizes.rAF(onChange);
 		};
 
 		element._lazysizesParentFit = config.fit;
 
-		element.addEventListener('load', function(){
-			lazySizes.rAF(onChange);
-		}, true);
+		element.addEventListener('lazyloaded', rafedOnChange, true);
+		element.addEventListener('load', rafedOnChange, true);
 
 		styleElement.addEventListener('load', function(){
 			var curSrc = styleElement.currentSrc || styleElement.src;
@@ -59,15 +86,23 @@
 			var hideElement = element;
 			var container = element.parentNode;
 
-			if(container.nodeName.toLowerCase() == 'PICTURE'){
+			if(container.nodeName.toUpperCase() == 'PICTURE'){
 				hideElement = container;
 				container = container.parentNode;
 			}
 
-			lazySizes.rC(styleElement, lazySizes.cfg.loadingClass);
-			lazySizes.rC(styleElement, lazySizes.cfg.loadedClass);
-			lazySizes.rC(styleElement, lazySizes.cfg.lazyClass);
-			lazySizes.aC(styleElement, lazySizes.cfg.objectFitClass || 'lazysizes-display-clone');
+			lazySizes.rC(styleElement, lazysizesCfg.loadedClass);
+			lazySizes.rC(styleElement, lazysizesCfg.lazyClass);
+			lazySizes.aC(styleElement, lazysizesCfg.loadingClass);
+			lazySizes.aC(styleElement, lazysizesCfg.objectFitClass || 'lazysizes-display-clone');
+
+			if(styleElement.getAttribute(lazysizesCfg.srcsetAttr)){
+				styleElement.setAttribute(lazysizesCfg.srcsetAttr, '');
+			}
+
+			if(styleElement.getAttribute(lazysizesCfg.srcAttr)){
+				styleElement.setAttribute(lazysizesCfg.srcAttr, '');
+			}
 
 			styleElement.src = blankSrc;
 			styleElement.srcset = '';
@@ -94,13 +129,21 @@
 	}
 
 	if(!fitSupport || !positionSupport){
-		addEventListener('lazyunveilread', function(e){
+		var onRead = function(e){
+			if(e.detail.instance != lazySizes){return;}
+
 			var element = e.target;
 			var obj = getObject(element);
 
 			if(obj.fit && (!fitSupport || (obj.position != 'center'))){
 				initFix(element, obj);
 			}
-		}, true);
+		};
+
+		window.addEventListener('lazyunveilread', onRead, true);
+
+		if(initialEvent && initialEvent.detail){
+			onRead(initialEvent);
+		}
 	}
-})();
+}));

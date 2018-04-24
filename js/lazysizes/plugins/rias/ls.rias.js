@@ -1,8 +1,21 @@
-(function(window, document, undefined){
+(function(window, factory) {
+	var globalInstall = function(){
+		factory(window.lazySizes);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes) {
 	/*jshint eqnull:true */
 	'use strict';
-
-	if(!document.addEventListener){return;}
 
 	var config, riasCfg;
 	var replaceTypes = {string: 1, number: 1};
@@ -31,7 +44,7 @@
 			ratio: false
 		};
 
-		config = (window.lazySizes && lazySizes.cfg) || window.lazySizesConfig;
+		config = (lazySizes && lazySizes.cfg) || window.lazySizesConfig;
 
 		if(!config){
 			config = {};
@@ -74,6 +87,7 @@
 
 	function getElementOptions(elem, src){
 		var attr, parent, setOption, options;
+		var elemStyles = window.getComputedStyle(elem);
 
 
 		parent = elem.parentNode;
@@ -84,7 +98,18 @@
 		setOption = function(attr, run){
 			var attrVal = elem.getAttribute('data-'+ attr);
 
-			if(attrVal != null){
+			if (!attrVal) {
+				// no data- attr, get value from the CSS
+				var styles = elemStyles.getPropertyValue('--ls-' + attr);
+				// at least Safari 9 returns null rather than
+				// an empty string for getPropertyValue causing
+				// .trim() to fail
+				if (styles) {
+					attrVal = styles.trim();
+				}
+			}
+
+			if (attrVal) {
 				if(attrVal == 'true'){
 					attrVal = true;
 				} else if(attrVal == 'false'){
@@ -198,6 +223,8 @@
 	}
 
 	addEventListener('lazybeforesizes', function(e){
+		if(e.detail.instance != lazySizes){return;}
+
 		var elem, src, elemOpts, parent, sources, i, len, sourceSrc, sizes, detail, hasPlaceholder, modified, emptyList;
 		elem = e.target;
 
@@ -325,6 +352,8 @@
 		};
 
 		var polyfill = function(e){
+			if(e.detail.instance != lazySizes){return;}
+
 			var candidate;
 			var elem = e.target;
 
@@ -359,4 +388,4 @@
 
 	})();
 
-})(window, document);
+}));

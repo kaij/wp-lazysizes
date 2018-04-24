@@ -22,13 +22,29 @@ For background images, use data-bg attribute:
  <div class="lazyload" data-require="module-name"></div>
 */
 
-(function(window, document){
+(function(window, factory) {
+	var globalInstall = function(){
+		factory(window.lazySizes);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes) {
 	/*jshint eqnull:true */
 	'use strict';
-	var bgLoad;
+	var bgLoad, regBgUrlEscape;
 	var uniqueUrls = {};
 
 	if(document.addEventListener){
+		regBgUrlEscape = /\(|\)|\s|'/;
 
 		bgLoad = function (url, cb){
 			var img = document.createElement('img');
@@ -48,6 +64,8 @@ For background images, use data-bg attribute:
 		};
 
 		addEventListener('lazybeforeunveil', function(e){
+			if(e.detail.instance != lazySizes){return;}
+
 			var tmp, load, bg, poster;
 			if(!e.defaultPrevented) {
 
@@ -69,8 +87,10 @@ For background images, use data-bg attribute:
 				// handle data-require
 				tmp = e.target.getAttribute('data-require');
 				if(tmp){
-					if(window.require){
-						require([tmp]);
+					if(lazySizes.cfg.requireJs){
+						lazySizes.cfg.requireJs([tmp]);
+					} else {
+						addStyleScript(tmp);
 					}
 				}
 
@@ -79,7 +99,7 @@ For background images, use data-bg attribute:
 				if (bg) {
 					e.detail.firesLoad = true;
 					load = function(){
-						e.target.style.backgroundImage = 'url(' + bg + ')';
+						e.target.style.backgroundImage = 'url(' + (regBgUrlEscape.test(bg) ? JSON.stringify(bg) : bg ) + ')';
 						e.detail.firesLoad = false;
 						lazySizes.fire(e.target, '_lazyloaded', {}, true, true);
 					};
@@ -122,4 +142,4 @@ For background images, use data-bg attribute:
 		uniqueUrls[elem.src || elem.href] = true;
 		insertElem.parentNode.insertBefore(elem, insertElem);
 	}
-})(window, document);
+}));

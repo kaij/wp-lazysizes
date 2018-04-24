@@ -1,8 +1,23 @@
-(function(window, document, undefined){
+(function(window, factory) {
+	var globalInstall = function(){
+		factory(window.lazySizes);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'), require('../fix-ios-sizes/fix-ios-sizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes) {
 	/*jshint eqnull:true */
 	'use strict';
 	var polyfill;
-	var config = (window.lazySizes && lazySizes.cfg) || window.lazySizesConfig;
+	var config = (lazySizes && lazySizes.cfg) || window.lazySizesConfig;
 	var img = document.createElement('img');
 	var supportSrcset = ('sizes' in img) && ('srcset' in img);
 	var regHDesc = /\s+\d+h/g;
@@ -13,14 +28,14 @@
 		return function(edgeMatch){
 			var img = document.createElement('img');
 			var removeHDescriptors = function(source){
-				var ratio;
+				var ratio, match;
 				var srcset = source.getAttribute(lazySizesConfig.srcsetAttr);
 				if(srcset){
-					if(srcset.match(regDescriptors)){
-						if(RegExp.$2 == 'w'){
-							ratio = RegExp.$1 / RegExp.$3;
+					if((match = srcset.match(regDescriptors))){
+						if(match[2] == 'w'){
+							ratio = match[1] / match[3];
 						} else {
-							ratio = RegExp.$3 / RegExp.$1;
+							ratio = match[3] / match[1];
 						}
 
 						if(ratio){
@@ -99,7 +114,7 @@
 		var ascendingSort = function( a, b ) {
 			return a.w - b.w;
 		};
-		var regPxLength = /^\s*\d+px\s*$/;
+		var regPxLength = /^\s*\d+\.*\d*px\s*$/;
 		var reduceCandidate = function (srces) {
 			var lowerCandidate, bonusFactor;
 			var len = srces.length;
@@ -189,7 +204,7 @@
 
 			if(!srcSet && isImage){
 				srcSet = !elem._lazypolyfill ?
-					(elem.getAttribute('src') || elem.getAttribute(config.srcAttr)) :
+					(elem.getAttribute(config.srcAttr) || elem.getAttribute('src')) :
 					elem._lazypolyfill._set
 				;
 			}
@@ -201,7 +216,7 @@
 					parsedSet.isPicture = elem.parentNode.nodeName.toUpperCase() == 'PICTURE';
 
 					if(parsedSet.isPicture){
-						if(window.matchMedia || (window.Modernizr && Modernizr.mq)){
+						if(window.matchMedia){
 							lazySizes.aC(elem, 'lazymatchmedia');
 							runMatchMedia();
 						}
@@ -227,8 +242,6 @@
 				matchesMedia = function(media){
 					return !media || (matchMedia(media) || {}).matches;
 				};
-			} else if(window.Modernizr && Modernizr.mq){
-				return !media || Modernizr.mq(media);
 			} else {
 				return !media;
 			}
@@ -258,9 +271,12 @@
 				width = source.getAttribute('sizes') || '';
 				width = regPxLength.test(width) && parseInt(width, 10) || lazySizes.gW(elem, elem.parentNode);
 				srces.d = getX(elem);
-				if(!srces.w || srces.w < width){
+				if(!srces.src || !srces.w || srces.w < width){
 					srces.w = width;
 					src = reduceCandidate(srces.sort(ascendingSort));
+					srces.src = src;
+				} else {
+					src = srces.src;
 				}
 			} else {
 				src = srces[0];
@@ -299,68 +315,4 @@
 		})();
 
 	}
-})(window, document);
-
-/**
- * Some versions of iOS (8.1-) do load the first candidate of a srcset candidate list, if width descriptors with the sizes attribute is used.
- * This tiny extension prevents this wasted download by creating a picture structure around the image.
- * Note: This extension is already included in the ls.respimg.js file.
- *
- * Usage:
- *
- * <img
- * 	class="lazyload"
- * 	data-sizes="auto"
- * 	data-srcset="small.jpg 640px,
- * 		medium.jpg 980w,
- * 		large.jpg 1280w"
- * 	/>
- */
-
-(function(document){
-	'use strict';
-	var regPicture;
-	var img = document.createElement('img');
-
-	if(('srcset' in img) && !('sizes' in img) && !window.HTMLPictureElement){
-		regPicture = /^picture$/i;
-		document.addEventListener('lazybeforeunveil', function(e){
-			var elem, parent, srcset, sizes, isPicture;
-			var picture, source;
-			if(e.defaultPrevented ||
-				lazySizesConfig.noIOSFix ||
-				!(elem = e.target) ||
-				!(srcset = elem.getAttribute(lazySizesConfig.srcsetAttr)) ||
-				!(parent = elem.parentNode) ||
-				(
-					!(isPicture = regPicture.test(parent.nodeName || '')) &&
-					!(sizes = elem.getAttribute('sizes') || elem.getAttribute(lazySizesConfig.sizesAttr))
-				)
-			){return;}
-
-			picture = isPicture ? parent : document.createElement('picture');
-
-			if(!elem._lazyImgSrc){
-				Object.defineProperty(elem, '_lazyImgSrc', {
-					value: document.createElement('source'),
-					writable: true
-				});
-			}
-			source = elem._lazyImgSrc;
-
-			if(sizes){
-				source.setAttribute('sizes', sizes);
-			}
-
-			source.setAttribute(lazySizesConfig.srcsetAttr, srcset);
-			elem.setAttribute('data-pfsrcset', srcset);
-			elem.removeAttribute(lazySizesConfig.srcsetAttr);
-
-			if(!isPicture){
-				parent.insertBefore(picture, elem);
-				picture.appendChild(elem);
-			}
-			picture.insertBefore(source, elem);
-		});
-	}
-})(document);
+}));

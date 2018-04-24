@@ -1,10 +1,26 @@
-(function(){
+(function(window, factory) {
+	var globalInstall = function(){
+		factory(window.lazySizes);
+		window.removeEventListener('lazyunveilread', globalInstall, true);
+	};
+
+	factory = factory.bind(null, window, window.document);
+
+	if(typeof module == 'object' && module.exports){
+		factory(require('lazysizes'));
+	} else if(window.lazySizes) {
+		globalInstall();
+	} else {
+		window.addEventListener('lazyunveilread', globalInstall, true);
+	}
+}(window, function(window, document, lazySizes) {
 	'use strict';
 	if(!window.addEventListener){return;}
 
 	var regWhite = /\s+/g;
 	var regSplitSet = /\s*\|\s+|\s+\|\s*/g;
 	var regSource = /^(.+?)(?:\s+\[\s*(.+?)\s*\])?$/;
+	var regBgUrlEscape = /\(|\)|'/;
 	var allowedBackgroundSize = {contain: 1, cover: 1};
 	var proxyWidth = function(elem){
 		var width = lazySizes.gW(elem, elem.parentNode);
@@ -54,16 +70,17 @@
 		}
 
 		sets.forEach(function(set){
+			var match;
 			var source = document.createElement('source');
 
 			if(sizes && sizes != 'auto'){
 				source.setAttribute('sizes', sizes);
 			}
 
-			if(set.match(regSource)){
-				source.setAttribute(lazySizesConfig.srcsetAttr, RegExp.$1);
-				if(RegExp.$2){
-					source.setAttribute('media', lazySizesConfig.customMedia[RegExp.$2] || RegExp.$2);
+			if((match = set.match(regSource))){
+				source.setAttribute(lazySizesConfig.srcsetAttr, match[1]);
+				if(match[2]){
+					source.setAttribute('media', lazySizesConfig.customMedia[match[2]] || match[2]);
 				}
 			}
 			picture.appendChild(source);
@@ -94,7 +111,7 @@
 		var bg = image.currentSrc || image.src;
 
 		if(bg){
-			elem.style.backgroundImage = 'url('+ bg +')';
+			elem.style.backgroundImage = 'url(' + (regBgUrlEscape.test(bg) ? JSON.stringify(bg) : bg ) + ')';
 		}
 
 		if(image._lazybgsetLoading){
@@ -134,6 +151,7 @@
 	document.addEventListener('load', proxyLoad, true);
 
 	window.addEventListener('lazybeforesizes', function(e){
+		if(e.detail.instance != lazySizes){return;}
 		if(e.target._lazybgset && e.detail.dataAttr){
 			var elem = e.target._lazybgset;
 			var bgSize = getBgSize(elem);
@@ -152,7 +170,7 @@
 	}, true);
 
 	document.documentElement.addEventListener('lazybeforesizes', function(e){
-		if(e.defaultPrevented || !e.target._lazybgset){return;}
+		if(e.defaultPrevented || !e.target._lazybgset || e.detail.instance != lazySizes){return;}
 		e.detail.width = proxyWidth(e.target._lazybgset);
 	});
-})();
+}));
